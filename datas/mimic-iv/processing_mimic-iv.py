@@ -157,7 +157,6 @@ def combine_process(med_pd, diag_pd, pro_pd):
     #     data['ICD9_CODE_Len'] = data['ICD9_CODE'].map(lambda x: len(x))
     data['ndc_len'] = data['ndc'].map(lambda x: len(x))
 
-    # 修改
     a = data[['subject_id', 'hadm_id']].groupby(by='subject_id')['hadm_id'].unique().reset_index()
     a['HADM_ID_Len'] = a['hadm_id'].map(lambda x:len(x))
     a = a[a['HADM_ID_Len'] > 1]
@@ -268,7 +267,7 @@ def create_patient_record(df, diag_voc, med_voc, pro_voc):
         for index, row in item_df.iterrows():
             if begin == 0:
                 begin = pd.to_datetime(row['admittime'])
-            timestamp = (pd.to_datetime(row['admittime']) - begin).days # 更改时间戳类型
+            timestamp = (pd.to_datetime(row['admittime']) - begin).days 
             admission = []
             admission = []
             admission.append([diag_voc.word2idx[i] for i in row['icd_code']])
