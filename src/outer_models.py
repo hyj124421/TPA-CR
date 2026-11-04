@@ -99,17 +99,16 @@ class GCN(nn.Module):
         for layer in self.layers:
             out = layer(out)
         return out
-#使用了双向GRU编码器
+
 class trd_encoder(nn.Module):
     def __init__(self,emb_dim=64,out_dim=None,device='cpu'):
         super().__init__()
         if not torch.is_tensor(out_dim):
             out_dim = emb_dim
-        #forward_encoder 创建前向GRU编码器
+        #forward_encoder 
         self.f_encoder = nn.GRU(emb_dim, out_dim, batch_first=True, device=device,dropout=0.2)
 
     def forward(self,input):
-        # 返回前向编码结果和反向编码结果，可以获得序列的上下文信息
         f_out = self.f_encoder(input)[1].transpose(0,1)
         r_out = self.f_encoder(torch.flip(input,dims=[1]))[1].transpose(0, 1)
 
@@ -124,19 +123,15 @@ def ddi_rate_score(record, path=None):
     all_cnt = 0
     dd_cnt = 0
 
-    # 动态获取矩阵大小
     matrix_size = ddi_A.size(0)
 
-    # 创建下三角矩阵，大小与ddi_A一致
     tril_matrix = torch.tril(torch.ones(matrix_size, matrix_size).to(record[0].device))
     tril_matrix -= torch.eye(matrix_size, device=record[0].device)
 
     for output in record:
-        # 确保output的维度与ddi_A匹配
         if output.size(0) > matrix_size:
             output = output[:matrix_size, :matrix_size]
         elif output.size(0) < matrix_size:
-            # 如果output太小，需要padding
             padded_output = torch.zeros(matrix_size, matrix_size, device=output.device)
             padded_output[:output.size(0), :output.size(0)] = output
             output = padded_output
