@@ -48,52 +48,37 @@ def build_visit_targets(drug_labels, visit_num, num_classes, device):
 
 
 def main(temp_number=None, epochs=5, lambda_weight=0.02, tau=0.06, alpha=1.0, lambda_schedule='fixed'):
-    """
-    主函数，用于训练和评估模型
-    参数:
-        temp_number: 临时编号，默认为None
-        epochs: 训练轮数，默认为5
-        lambda_weight: 对比损失的权重，默认为0.02
-        tau: 对比学习的温度参数，默认为0.06
-        alpha: 时间门控的alpha参数，默认为1.0
-        lambda_schedule: lambda权重调度策略，默认为'fixed'
-    """
-
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f'Using device: {device}')
 
-    # 加载词汇表数据，包含诊断、手术和药物的词汇表
     voc = dill.load(open(r'datas/mimic-iii/voc_final.pkl', 'rb'))
     diag_voc, pro_voc, med_voc = voc['diag_voc'], voc['pro_voc'], voc['med_voc']
     voc_size = (len(diag_voc.idx2word) + 1, len(pro_voc.idx2word) + 1, len(med_voc.idx2word) + 1)
 
-    # 加载患者记录数据，并过滤掉长度小于2的记录
     data = dill.load(open(r'datas/mimic-iii/records_final.pkl', 'rb'))
-    data = [x for x in data if len(x) >= 2]  # 过滤掉长度小于2的记录
+    data = [x for x in data if len(x) >= 2] 
 
-
-    # 数据预处理：标准化每个访问记录的格式
     for patient_idx, patient in enumerate(data):
         for visit_idx, visit in enumerate(patient):
-            # 处理不同长度的访问记录，确保格式统一
             if len(visit) == 4:
                 timestamp = visit[3]
                 visit[:] = [visit[0], visit[1], visit[2], 0, 0, timestamp]
             elif len(visit) == 5:
                 visit.append(visit_idx)
-            # 将索引从0开始转换为从1开始
-            visit[0] = [i + 1 for i in visit[0]]  # 诊断索引
-            visit[1] = [i + 1 for i in visit[1]]  # 手术索引
-            visit[2] = [i + 1 for i in visit[2]]  # 药物索引
+  
+            visit[0] = [i + 1 for i in visit[0]] 
+            visit[1] = [i + 1 for i in visit[1]]  
+            visit[2] = [i + 1 for i in visit[2]]  
 
-    # 数据集划分：训练集、测试集和验证集
+
     split_point = int(len(data) * 2 / 3)
-    data_train = data[:split_point]  # 训练集占2/3
+    data_train = data[:split_point]  
     eval_len = int(len(data[split_point:]) / 2)
-    data_test = data[split_point:split_point + eval_len]  # 测试集占1/3中的前半部分
-    data_eval = data[split_point + eval_len:]  # 验证集占1/3中的后半部分
+    data_test = data[split_point:split_point + eval_len]  
+    data_eval = data[split_point + eval_len:]  
 
-    # 加载药物相互作用矩阵和电子健康记录邻接矩阵
+    
     ddi_matrix = dill.load(open(r'datas/mimic-iii/ddi_A_final.pkl', 'rb'))
     #ddi_4_matrix = dill.load(open(r'datas/mimic-iv/ddi_A_final_4.pkl', 'rb'))
     #ddi_matrix = ddi_4_matrix
