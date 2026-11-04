@@ -7,11 +7,9 @@ from collections import defaultdict
 ##### process medications #####
 # load med data
 def med_process(med_file):
-    """读取MIMIC原数据文件，保留pid、adm_id、data以及NDC，以DF类型返回"""
-    # 读取药物文件，NDC（National Drug Code）以类别类型存储
+   
     med_pd = pd.read_csv(med_file, dtype={'NDC':'category'})
 
-    # drop不用的数据
     med_pd.drop(columns=['ROW_ID','DRUG_TYPE','DRUG_NAME_POE','DRUG_NAME_GENERIC',
                         'FORMULARY_DRUG_CD','PROD_STRENGTH','DOSE_VAL_RX',
                         'DOSE_UNIT_RX','FORM_VAL_DISP','FORM_UNIT_DISP', 'GSN', 'FORM_UNIT_DISP',
@@ -23,7 +21,7 @@ def med_process(med_file):
     med_pd['ICUSTAY_ID'] = med_pd['ICUSTAY_ID'].astype('int64')
     med_pd['STARTDATE'] = pd.to_datetime(med_pd['STARTDATE'], format='%Y-%m-%d %H:%M:%S')    
     med_pd.sort_values(by=['SUBJECT_ID', 'HADM_ID', 'ICUSTAY_ID', 'STARTDATE'], inplace=True)
-    med_pd = med_pd.reset_index(drop=True)  # 重置索引，同时drop原索引
+    med_pd = med_pd.reset_index(drop=True) 
 
     med_pd = med_pd.drop(columns=['ICUSTAY_ID'])
     med_pd = med_pd.drop_duplicates()
@@ -33,15 +31,14 @@ def med_process(med_file):
 
 # medication mapping
 def ndc2atc4(med_pd):
-    """将NDC映射到ACT4"""
     with open(ndc_rxnorm_file, 'r') as f:
         ndc2rxnorm = eval(f.read())
-    # 根据ndc_rxnorm_file文件读取ndc到xnorm的映射（这个xnorm似乎等同于下面的RXCUI）
+
     med_pd['RXCUI'] = med_pd['NDC'].map(ndc2rxnorm)
-    med_pd.dropna(inplace=True) # 实际上啥也没删掉
+    med_pd.dropna(inplace=True) 
 
     rxnorm2atc = pd.read_csv(ndc2atc_file)
-    rxnorm2atc = rxnorm2atc.drop(columns=['YEAR','MONTH','NDC'])    # NDC删了，直接从RXCUI映射到ATC
+    rxnorm2atc = rxnorm2atc.drop(columns=['YEAR','MONTH','NDC'])   
     # 根据RXCUI删除重复列
     rxnorm2atc.drop_duplicates(subset=['RXCUI'], inplace=True)
 
@@ -231,12 +228,12 @@ class Voc(object):
                 
 # create voc set
 def create_str_token_mapping(df):
-    diag_voc = Voc() #创建诊断代码词汇表实例
+    diag_voc = Voc() 
     med_voc = Voc()
     pro_voc = Voc()
     
-    for index, row in df.iterrows(): #遍历DataFrame的每一行（每个住院事件）
-        diag_voc.add_sentence(row['ICD9_CODE']) #将诊断代码列表添加到词汇表
+    for index, row in df.iterrows():
+        diag_voc.add_sentence(row['ICD9_CODE']) 
         med_voc.add_sentence(row['NDC'])
         pro_voc.add_sentence(row['PRO_CODE'])
     
