@@ -12,14 +12,8 @@ from torch.nn import Parameter
 import math
 from typing import List
 
-
-# ========== 时间感知组件 ==========
 class Time2VecTimeEncoder(nn.Module):
     def __init__(self, embedding_dimension: int):
-        """
-        Time2Vec 时间编码器。
-        第 1 维学习线性时间趋势，其余维度学习周期性时间变化。
-        """
         super(Time2VecTimeEncoder, self).__init__()
         if embedding_dimension < 2:
             raise ValueError("embedding_dimension must be at least 2 for Time2Vec.")
@@ -38,86 +32,47 @@ class Time2VecTimeEncoder(nn.Module):
 
 
 class GraphConvolution(torch.nn.Module):
-    """
-    图卷积层 (Graph Convolutional Layer) 实现
-    实现简单的图卷积层，支持带有可选偏置项的线性变换，
-    并使用邻接矩阵进行图卷积操作。
-    """
+
     def __init__(self, in_features, out_features, bias=True):
-        """
-        初始化图卷积层
-        参数:
-            in_features (int): 输入特征维度
-            out_features (int): 输出特征维度
-            bias (bool): 是否使用偏置项，默认为 True
-        """
+       
         super(GraphConvolution, self).__init__()
-        self.in_features = in_features  # 保存输入特征维度
-        self.out_features = out_features  # 保存输出特征维度
+        self.in_features = in_features 
+        self.out_features = out_features  
 
         assert isinstance(in_features, int), f"in_features must be int, got {type(in_features)}"
         assert isinstance(out_features, int), f"out_features must be int, got {type(out_features)}"
 
-        # 创建可训练的权重参数矩阵
         self.weight = Parameter(torch.FloatTensor(in_features, out_features))
         if bias:
-            # 如果使用偏置，则创建偏置参数
             self.bias = Parameter(torch.FloatTensor(out_features))
         else:
-            # 如果不使用偏置，则注册一个 None 参数
             self.register_parameter('bias', None)
-        self.reset_parameters()  # 初始化参数
+        self.reset_parameters()  
 
     def reset_parameters(self):
-        """
-        重置网络参数
-        使用均匀分布初始化权重和偏置（如果存在）
-        初始化范围为 [-1/√n, 1/√n]，其中 n 是输出特征的数量
-        """
+       
         stdv = 1. / math.sqrt(self.weight.size(1))
-        self.weight.data.uniform_(-stdv, stdv)  # 初始化权重
+        self.weight.data.uniform_(-stdv, stdv)  # Initialize weights
         if self.bias is not None:
-            self.bias.data.uniform_(-stdv, stdv)  # 初始化偏置
+            self.bias.data.uniform_(-stdv, stdv)  # Initialization bias
 
     def forward(self, input, adj):
-        """
-        前向传播函数
-        参数:
-            input (Tensor): 输入特征矩阵，形状为 [num_nodes, in_features]
-            adj (Tensor): 邻接矩阵，形状为 [num_nodes, num_nodes]
-        返回:
-            Tensor: 输出特征矩阵，形状为 [num_nodes, out_features]
-        """
-        # 计算输入特征与权重矩阵的乘积
         support = torch.mm(input, self.weight)
-        # 使用邻接矩阵对特征进行图卷积操作
         output = torch.mm(adj, support)
         if self.bias is not None:
-            # 如果存在偏置，则添加偏置项
             return output + self.bias
         else:
-            # 如果不存在偏置，则直接返回输出
             return output
 
 
 class GCN(torch.nn.Module):
     def __init__(self, voc_size, emb_dim, ehr_adj, ddi_adj, device=torch.device('cpu:0')):
-        """
-        初始化图神经网络模型
-        参数:
-            voc_size: 词汇表大小，包含诊断、手术和药物的数量
-            emb_dim: 嵌入维度
-            ehr_adj: 电子健康记录的邻接矩阵
-            ddi_adj: 药物相互作用的邻接矩阵
-            device: 计算设备，默认为 CPU
-        """
+       
         super(GCN, self).__init__()
         self.voc_size = voc_size
         self.emb_dim = emb_dim
         self.device = device
 
-        # 对邻接矩阵添加自环，再进行归一化处理
-        # 训练入口传入 Tensor（可能位于 CUDA）；NumPy 归一化前显式移到 CPU。
         if torch.is_tensor(ehr_adj):
             ehr_adj = ehr_adj.detach().cpu().numpy()
         if torch.is_tensor(ddi_adj):
@@ -125,59 +80,40 @@ class GCN(torch.nn.Module):
         ehr_adj = self.normalize(ehr_adj + np.eye(ehr_adj.shape[0]))
         ddi_adj = self.normalize(ddi_adj + np.eye(ddi_adj.shape[0]))
 
-        # 将邻接矩阵转换为张量并移动到指定设备
         self.ehr_adj = torch.FloatTensor(ehr_adj).to(device)
         self.ddi_adj = torch.FloatTensor(ddi_adj).to(device)
 
-        # 使用药物数量作为输入维度
+        # Use the number of medications as the input dimension.
         med_voc_size = voc_size[2]
-        # 创建单位矩阵作为药物嵌入的初始输入
         self.x = torch.eye(med_voc_size).to(device)
 
-        # 定义三个图卷积层
+        # Define three graph convolutional layers.
         self.gcn1 = GraphConvolution(med_voc_size, emb_dim)
-        self.dropout = torch.nn.Dropout(p=0.3)  # 定义 dropout 层，防止过拟合
+        self.dropout = torch.nn.Dropout(p=0.3)  
         self.gcn2 = GraphConvolution(emb_dim, emb_dim)
         self.gcn3 = GraphConvolution(emb_dim, emb_dim)
 
     def forward(self):
-        """
-        前向传播过程
-        返回:
-            ehr_node_embedding: EHR 图中的节点嵌入
-            ddi_node_embedding: DDI 图中的节点嵌入
-        """
-        # 第一层图卷积处理
+       
         ehr_node_embedding = self.gcn1(self.x, self.ehr_adj)
         ddi_node_embedding = self.gcn1(self.x, self.ddi_adj)
-        # 应用 ReLU 激活函数
+        # ReLU
         ehr_node_embedding = F.relu(ehr_node_embedding)
         ddi_node_embedding = F.relu(ddi_node_embedding)
-        # 应用dropout
+        #dropout
         ehr_node_embedding = self.dropout(ehr_node_embedding)
         ddi_node_embedding = self.dropout(ddi_node_embedding)
 
-        # 分别使用第二个和第三个图卷积层处理 EHR 图与 DDI 图
         ehr_node_embedding = self.gcn2(ehr_node_embedding, self.ehr_adj)
         ddi_node_embedding = self.gcn3(ddi_node_embedding, self.ddi_adj)
         return ehr_node_embedding, ddi_node_embedding
 
     def normalize(self, mx):
-        """
-        对邻接矩阵进行归一化处理
-        参数:
-            mx: 需要归一化的邻接矩阵
-        返回:
-            归一化后的邻接矩阵
-        """
-        # 计算每行的和
+       
         rowsum = np.array(mx.sum(1))
-        # 计算行和的倒数，并处理无穷大的情况
         r_inv = np.power(rowsum, -1).flatten()
         r_inv[np.isinf(r_inv)] = 0.
-        # 创建对角矩阵
         r_mat_inv = np.diagflat(r_inv)
-        # 应用归一化
         mx = r_mat_inv.dot(mx)
         return mx
 
@@ -186,39 +122,38 @@ class SimpleContrastiveLearningModule(nn.Module):
 
     def __init__(self, input_dim, temperature=0.06):
         super().__init__()
-        self.input_dim = input_dim #输入特征维度
-        self.temperature = temperature # 温度参数，控制相似度的平滑程度
+        self.input_dim = input_dim 
+        self.temperature = temperature 
 
-        # 改进的投影头：添加LayerNorm和更深的网络
         self.projection_head = nn.Sequential(
-            # 第一层：扩展到两倍维度
+
             nn.Linear(input_dim, input_dim * 2),
-            nn.LayerNorm(input_dim * 2), # 层归一化，稳定训练
-            nn.ReLU(), # 非线性激活
-            nn.Dropout(0.1), # 防止过拟合
-            # 第二层：降回原始维度
+            nn.LayerNorm(input_dim * 2), 
+            nn.ReLU(), 
+            nn.Dropout(0.1),
+           
             nn.Linear(input_dim * 2, input_dim),
-            nn.LayerNorm(input_dim), # 再次归一化
+            nn.LayerNorm(input_dim),
             nn.ReLU(),
-            # 第三层：最终投影到对比空间
+           
             nn.Linear(input_dim, input_dim)
         )
 
-        # 负样本队列（简单实现）
+       
         self.register_buffer("neg_queue", torch.randn(1024, input_dim))
-        self.queue_ptr = 0 # 队列指针，用于循环写入
+        self.queue_ptr = 0 
 
     @torch.no_grad()
     def update_queue(self, features):
         """Update negative sample queue."""
         batch_size = features.size(0)
         ptr = self.queue_ptr
-        # 队列剩余空间足够
+       
         if ptr + batch_size <= 1024:
-            self.neg_queue[ptr:ptr + batch_size] = features.detach() #直接写入
-            self.queue_ptr = (ptr + batch_size) % 1024 #更新指针
+            self.neg_queue[ptr:ptr + batch_size] = features.detach()
+            self.queue_ptr = (ptr + batch_size) % 1024
         else:
-            # 循环覆盖
+            
             self.neg_queue[ptr:] = features.detach()[:1024 - ptr]
             self.neg_queue[:batch_size - (1024 - ptr)] = features.detach()[1024 - ptr:]
             self.queue_ptr = batch_size - (1024 - ptr)
@@ -226,19 +161,18 @@ class SimpleContrastiveLearningModule(nn.Module):
     def forward(self, anchor_emb, positive_emb, negative_emb=None, negative_mask=None):
         batch_size = anchor_emb.size(0)
 
-        # 投影到对比空间
+        
         anchor_proj = self.projection_head(anchor_emb)
         positive_proj = self.projection_head(positive_emb)
 
-        # L2 归一化
+       
         anchor_proj = F.normalize(anchor_proj, dim=-1)
         positive_proj = F.normalize(positive_proj, dim=-1)
 
-        # 正样本相似度
+        # Positive sample similarity
         pos_sim = torch.sum(anchor_proj * positive_proj, dim=-1) / self.temperature
 
         if negative_emb is not None:
-            # 使用提供的负样本
             if negative_emb.dim() == 3:
                 negative_proj = self.projection_head(negative_emb.view(-1, self.input_dim))
                 negative_proj = F.normalize(negative_proj, dim=-1)
@@ -254,11 +188,10 @@ class SimpleContrastiveLearningModule(nn.Module):
                 if negative_mask is not None:
                     neg_sim = neg_sim.masked_fill(~negative_mask.bool(), -1e9)
         else:
-            # 使用队列中的负样本
             queue_norm = F.normalize(self.neg_queue, dim=-1)
             neg_sim = torch.mm(anchor_proj, queue_norm.T) / self.temperature
 
-        # 组合logits
+        # logits
         if negative_emb is not None:
             logits = torch.cat([pos_sim.unsqueeze(1), neg_sim], dim=1)
         else:
@@ -266,11 +199,9 @@ class SimpleContrastiveLearningModule(nn.Module):
 
         labels = torch.zeros(logits.size(0), dtype=torch.long, device=logits.device)
         loss = F.cross_entropy(logits, labels)
-
-        # 更新队列：保存历史用药检索表示，作为后续负样本
+    
         self.update_queue(positive_proj)
 
-        # 限制 loss 的最大值
         loss = torch.clamp(loss, max=10.0)
 
         return loss
@@ -282,13 +213,13 @@ class SimpleHistoryDrugRetrieval(nn.Module):
         super().__init__()
         self.voc_size = voc_size
         self.emb_dim = emb_dim
-        self.med_dim = med_dim #医疗特征维度
+        self.med_dim = med_dim
         self.device = device
 
-        # 药物记忆库（缩放初始权重）
+        # drug_memory
         self.drug_memory = nn.Parameter(torch.randn(voc_size[2] - 1, emb_dim, device=device) * 0.02)
 
-        # 改进的患者表示投影
+        
         self.patient_projection = nn.Sequential(
             nn.Linear(med_dim, emb_dim * 2, device=device),
             nn.LayerNorm(emb_dim * 2),
@@ -298,38 +229,30 @@ class SimpleHistoryDrugRetrieval(nn.Module):
             nn.LayerNorm(emb_dim)
         )
 
-        # 位置编码，为历史序列中的每个位置添加位置信息
+    
         self.position_encoder = nn.Embedding(100, emb_dim, device=device)
 
-        # 双向 GRU 编码器：捕捉历史序列的上下文信息
         self.history_encoder = nn.GRU(emb_dim, emb_dim // 2, batch_first=True,
                                       bidirectional=True, device=device, dropout=0.1)
         self.history_proj = nn.Linear(emb_dim, emb_dim, device=device)
 
-        # 多头自注意力：捕捉历史序列内部的依赖关系
         self.self_attention = nn.MultiheadAttention(emb_dim, num_heads=4,
                                                     batch_first=True, device=device, dropout=0.1)
 
-        # 交叉注意力：将当前患者表示与历史序列进行交互
         self.cross_attention = nn.MultiheadAttention(emb_dim, num_heads=4,
                                                      batch_first=True, device=device, dropout=0.1)
 
-        # 门控融合：动态决定当前表示和历史摘要的权重
         self.fusion_gate = nn.Sequential(
-            nn.Linear(emb_dim * 2, emb_dim, device=device), # 输入：拼接当前表示和历史摘要
+            nn.Linear(emb_dim * 2, emb_dim, device=device), 
             nn.Sigmoid()
         )
 
-        # 对比学习模块，拉近相关表示，推远不相关表示
         self.contrastive_module = SimpleContrastiveLearningModule(emb_dim, temperature=temperature)
 
-        # 可学习权重，用于调节损失和表示融合的贡献
         self.contrastive_weight = nn.Parameter(torch.tensor(0.1, device=device))
         self.fusion_weight = nn.Parameter(torch.tensor(0.5, device=device))
         self.num_hard_negatives = 3
         self.negative_jaccard_threshold = 0.3
-
-
 
     def build_dissimilar_history_negatives(self, current_proj, history_seq, history_drug_masks,
                                            history_drug_tensor=None, current_drug_tensor=None,
@@ -489,10 +412,6 @@ class SimpleHistoryDrugRetrieval(nn.Module):
         total_loss = contrastive_loss + 0.1 * consistency_loss
         return fused_rep.unsqueeze(1), attn_weights, total_loss
 
-
-# =====================================================================
-
-
 class demo_net(nn.Module):
     """Main TPA-CR model."""
 
@@ -511,11 +430,9 @@ class demo_net(nn.Module):
             self.gcn = GCN(voc_size, emb_dim, ehr_graph, ddi_graph, device)
             self.use_gcn = True
 
-            # beta = sigmoid(logit)，初值 0.5；在表示层学习 DDI 分支的扣减强度。
-            # 这是关系表示融合，并不是对最终 DDI rate 的显式约束。
+            # beta = sigmoid(logit)，
             self.ddi_fusion_logit = nn.Parameter(torch.zeros((), device=device))
 
-            # 将融合后的双图表示投影到与 patient_rep 相同的维度。
             self.gcn_projection = nn.Sequential(
                 nn.Linear(emb_dim, self.med_dim, device=device),
                 nn.LayerNorm(self.med_dim),
@@ -538,7 +455,7 @@ class demo_net(nn.Module):
             nn.Linear(emb_dim, 1)
         )
 
-        # 可学习的时间衰减参数
+        # time_decay_tau
         self.time_decay_tau = nn.Parameter(torch.tensor(10.0, device=device))
 
         self.rnp = RNP(emb_dim=emb_dim * 4)
@@ -648,11 +565,10 @@ class demo_net(nn.Module):
         self.time_gate_generator = nn.Sequential(
             nn.Linear(emb_dim, emb_dim),
             nn.Tanh(),
-            nn.Linear(emb_dim, 3),  # 为三条路径生成门控：1. GCN，2. 历史记忆，3. 对比检索
+            nn.Linear(emb_dim, 3), 
             nn.Sigmoid()
         )
 
-        # 2. 时间增强的患者表示融合
         self.temporal_patient_fusion = nn.Sequential(
             nn.Linear(self.med_dim * 2, self.med_dim),
             nn.Tanh(),
@@ -766,7 +682,6 @@ class demo_net(nn.Module):
         """Temporal multi-path decoder."""
         visit_num = patient_rep.size(0)
 
-        # 处理药物记忆
         visit_drug_onehot = torch.nn.functional.one_hot(
             drug_mem.squeeze(dim=0),
             num_classes=self.voc_size[2]
@@ -780,7 +695,6 @@ class demo_net(nn.Module):
         drug_mem_onehot = drug_mem_onehot * causal_mask.unsqueeze(-1)
         history_drug_masks = drug_mem_onehot.sum(dim=-1) > 0
 
-        # 历史序列编码
         diag_his = diag.sum(dim=-2).reshape(-1, self.emb_dim)
         proc_his = proc.sum(dim=-2).reshape(-1, self.emb_dim)
         diag_his = self.diag_his_encoder(diag_his)[0]
@@ -793,7 +707,6 @@ class demo_net(nn.Module):
             else:
                 patient_rep = patient_rep.mean(dim=1)
 
-        # 时间感知的多路径调制
         temporal_prob = torch.zeros(visit_num, self.voc_size[2] - 1, device=self.device)
         temporal_prob_list = []
         temporal_gate_weights_list = []
@@ -832,7 +745,6 @@ class demo_net(nn.Module):
             temporal_gate_weights = torch.ones(visit_num, 3, device=self.device)
             patient_rep_temporal = patient_rep
 
-        # 拆分门控权重
         gcn_gate_raw = temporal_gate_weights[:, 0].unsqueeze(-1)
         his_gate_raw = temporal_gate_weights[:, 1].unsqueeze(-1)
         retrieval_gate_raw = temporal_gate_weights[:, 2].unsqueeze(-1)
@@ -841,18 +753,15 @@ class demo_net(nn.Module):
         his_gate = alpha * his_gate_raw + (1 - alpha) * torch.ones_like(his_gate_raw)
         retrieval_gate = alpha * retrieval_gate_raw + (1 - alpha) * torch.ones_like(retrieval_gate_raw)
 
-        # 路径 1：时间增强的图卷积预测
         gcn_enhanced_prob = self.graph_recommendation_scores(
             patient_rep_temporal, gcn_gate
         )
 
-        # 路径 2：时间调制的历史记忆预测
         his_enhance = self.history_gate_unit(
             patient_rep_temporal, drug_mem_onehot, self.patient_mem_contact
         )
-        his_enhance = his_enhance * his_gate  # 施加时间门控
+        his_enhance = his_enhance * his_gate 
 
-        # 路径 3：时间调制的对比检索预测
         history_drug_masks = history_drug_masks.bool()
         retrieved_rep, attention_weights, contrastive_loss = \
             self.history_retrieval.retrieve_with_contrastive_v2(
@@ -862,9 +771,9 @@ class demo_net(nn.Module):
         retrieved_rep_mean = retrieved_rep.mean(dim=1)
         retrieved_rep_proj = self.retrieved_projection(retrieved_rep_mean)
         retrieved_prob = torch.matmul(retrieved_rep_proj, self.med_block)
-        retrieved_prob = retrieved_prob * retrieval_gate  # 施加时间门控
+        retrieved_prob = retrieved_prob * retrieval_gate  
 
-        final_prob_1 = patient_rep_temporal @ self.med_block  # 同样使用时间增强表示
+        final_prob_1 = patient_rep_temporal @ self.med_block  
 
         diag_probseq = diag @ self.diag_med_block
         proc_probseq = proc @ self.proc_med_block
@@ -882,17 +791,14 @@ class demo_net(nn.Module):
             prob_seq_rep, drug_mem_onehot, self.prob_seq_contact
         )
 
-        # =====================================================================
-        # 最终融合
-        # =====================================================================
         prob = (
                 final_prob_1 +
                 his_enhance +
                 final_prob_3 +
                 prob_seq_enhance +
-                gcn_enhanced_prob +  # 已被时间门控调制
-                temporal_prob +  # 纯时间路径预测
-                retrieved_prob  # 已被时间门控调制
+                gcn_enhanced_prob +  
+                temporal_prob + 
+                retrieved_prob  
         )
 
         prob = prob.reshape(-1, self.voc_size[2] - 1)
