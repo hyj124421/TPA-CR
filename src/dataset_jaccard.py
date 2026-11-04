@@ -38,17 +38,15 @@ def draw_jaccard(jaccard_path,step=1,top=50):
             if input<=i:
                 return int(i/10)
             i*=10
-    # 1. 定义区间范围
-    interval_ranges = []  # 例如，将值分成0-10，10-20，20-30和30-40的区间
+    
+    interval_ranges = [] 
     step = 1
     top = 50
     for i in range(0,top,step):
         interval_ranges.append([i/top,(i+step)/top])
 
-    # 2. 模拟一个列表
     data = dill.load(open(jaccard_path,'rb'))
 
-    # 3. 统计每个区间内值的数量
     interval_counts = [0] * len(interval_ranges)
 
     for value in data:
@@ -57,7 +55,6 @@ def draw_jaccard(jaccard_path,step=1,top=50):
                 interval_counts[i] += 1
                 break
 
-    # 4. 使用柱状图绘制统计结果
     labels = [f"{end}" for start, end in interval_ranges]
     x = range(len(interval_ranges))
     plt.bar(x, interval_counts, tick_label=labels)
