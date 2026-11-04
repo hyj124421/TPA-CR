@@ -31,17 +31,14 @@ def transform_split(X, Y):
     return x_train, x_eval, x_test, y_train, y_eval, y_test
 
 def sequence_output_process(output_logits, filter_token):
-    """生成最终正确的序列，output_logits表示每个位置的prob，filter_token代表SOS与END"""
-    pind = np.argsort(output_logits, axis=-1)[:, ::-1]  # 每个位置上按概率的降序排序
+    pind = np.argsort(output_logits, axis=-1)[:, ::-1]  
 
-    out_list = []   # 生成的结果
+    out_list = []  
     break_flag = False
     for i in range(len(pind)):
-        # 顺序遍历pind上所有值
-        # break_flag来判断是否退出sentence生成的循环
         if break_flag:
             break
-        # 每个位置上是按降序排序好的结果
+
         for j in range(pind.shape[1]):
             label = pind[i][j]
             if label in filter_token:
@@ -475,22 +472,20 @@ def output_flatten(labels, logits, seq_length, m_length_matrix, med_num, END_TOK
     labels: [batch_size, visit_num, medication_num]
     logits: [batch_size, visit_num, max_med_num, medication_vocab_size]
     '''
-    # 将最终多个维度的结果展开
     batch_size, max_seq_length = labels.size()[:2]
     assert max_seq_length == max(seq_length)
     whole_seqs_num = seq_length.sum().item()
     if training:
-        whole_med_sum = sum([sum(buf) for buf in m_length_matrix]) + whole_seqs_num # 因为每一个seq后面会多一个END_TOKEN
+        whole_med_sum = sum([sum(buf) for buf in m_length_matrix]) + whole_seqs_num 
 
-        # 将结果展开，然后用库函数进行计算
         labels_flatten = torch.empty(whole_med_sum).to(device)
         logits_flatten = torch.empty(whole_med_sum, med_num).to(device)
 
         start_idx = 0
-        for i in range(batch_size): # 每个batch
-            for j in range(seq_length[i]):  # seq_length[i]指这个batch对应的seq数目
-                for k in range(m_length_matrix[i][j]+1):  # m_length_matrix[i][j]对应seq中med的数目
-                    if k==m_length_matrix[i][j]:    # 最后一个label指定为END_TOKEN
+        for i in range(batch_size): 
+            for j in range(seq_length[i]): 
+                for k in range(m_length_matrix[i][j]+1):  
+                    if k==m_length_matrix[i][j]:    
                         labels_flatten[start_idx] = END_TOKEN
                     else:
                         labels_flatten[start_idx] = labels[i, j, k]
@@ -498,23 +493,22 @@ def output_flatten(labels, logits, seq_length, m_length_matrix, med_num, END_TOK
                     start_idx += 1
         return labels_flatten, logits_flatten
     else:
-        # 将结果按照adm展开，然后用库函数进行计算
         labels_flatten = []
         logits_flatten = []
 
         start_idx = 0
-        for i in range(batch_size): # 每个batch
-            for j in range(seq_length[i]):  # seq_length[i]指这个batch对应的seq数目
+        for i in range(batch_size): 
+            for j in range(seq_length[i]): 
                 labels_flatten.append(labels[i,j,:m_length_matrix[i][j]].detach().cpu().numpy())
                 
                 if testing:
-                    logits_flatten.append(logits[j])  # beam search目前直接给出了预测结果
+                    logits_flatten.append(logits[j]) 
                 else:
-                    logits_flatten.append(logits[i,j,:max_len,:].detach().cpu().numpy())     # 注意这里手动定义了max_len
+                    logits_flatten.append(logits[i,j,:max_len,:].detach().cpu().numpy())     
                 # cur_label = []
                 # cur_seq_length = []
-                # for k in range(m_length_matrix[i][j]+1):  # m_length_matrix[i][j]对应seq中med的数目
-                #     if k==m_length_matrix[i][j]:    # 最后一个label指定为END_TOKEN
+                # for k in range(m_length_matrix[i][j]+1):  
+                #     if k==m_length_matrix[i][j]:   
                 #         continue
                 #     else:
                 #         labels_flatten[start_idx] = labels[i, j, k]
